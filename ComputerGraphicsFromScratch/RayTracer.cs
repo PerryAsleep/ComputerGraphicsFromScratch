@@ -13,6 +13,8 @@ internal sealed class RayTracer
 	private readonly Texture2D[] Textures;
 	private readonly uint[] TextureData;
 
+	private const float epsilon = 0.001f;
+
 	private readonly int CanvasW;
 	private readonly int CanvasH;
 	private readonly float ViewportW;
@@ -102,13 +104,13 @@ internal sealed class RayTracer
 		if (discriminant < 0.0f)
 			return (float.PositiveInfinity, float.PositiveInfinity);
 
-		var t1 = -k2 + (float)Math.Sqrt(discriminant) / (2.0f * k1);
-		var t2 = -k2 - (float)Math.Sqrt(discriminant) / (2.0f * k1);
+		var t1 = (-k2 + (float)Math.Sqrt(discriminant)) / (2.0f * k1);
+		var t2 = (-k2 - (float)Math.Sqrt(discriminant)) / (2.0f * k1);
 
 		return (t1, t2);
 	}
 
-	private Color TraceRay(Vector3 origin, Vector3 direction, float minT, float maxT)
+	private (Sphere, float) ClosestIntersection(Vector3 origin, Vector3 direction, float minT, float maxT)
 	{
 		var closestT = float.PositiveInfinity;
 		Sphere closestSphere = null;
@@ -128,6 +130,15 @@ internal sealed class RayTracer
 				closestSphere = Spheres[sphereIndex];
 			}
 		}
+
+		if (closestSphere != null)
+			return (closestSphere, closestT);
+		return (null, 0.0f);
+	}
+
+	private Color TraceRay(Vector3 origin, Vector3 direction, float minT, float maxT)
+	{
+		var (closestSphere, closestT) = ClosestIntersection(origin, direction, minT, maxT);
 
 		if (closestSphere == null)
 			return BackgroundColor;
@@ -159,6 +170,7 @@ internal sealed class RayTracer
 			else
 			{
 				Vector3 lightVector;
+				var tMax = 1.0f;
 				if (light.Type == Light.LightType.Point)
 				{
 					lightVector = light.Position - point;
@@ -166,7 +178,13 @@ internal sealed class RayTracer
 				else
 				{
 					lightVector = light.Position;
+					tMax = float.PositiveInfinity;
 				}
+
+				// Shadow check
+				var (blocker, _) = ClosestIntersection(point, lightVector, epsilon, tMax);
+				if (blocker != null)
+					continue;
 
 				// Diffuse reflection
 				var nDotL = Vector3.Dot(normal, lightVector);
