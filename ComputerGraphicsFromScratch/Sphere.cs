@@ -9,11 +9,14 @@ internal sealed class Sphere
 	public Color Color { get; set; }
 	public int Specular { get; set; }
 
-	public Sphere(Vector3 center, double radius, Color color, int specular)
+	public float Reflective { get; set; }
+
+	public Sphere(Vector3 center, double radius, Color color, int specular, float reflective)
 	{
 		Center = center;
 		Radius = radius;
 		Color = color;
 		Specular = specular;
+		Reflective = reflective;
 	}
 }
