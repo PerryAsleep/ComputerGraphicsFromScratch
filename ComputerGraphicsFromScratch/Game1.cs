@@ -6,12 +6,12 @@ namespace ComputerGraphicsFromScratch;
 
 internal sealed class Game1 : Game
 {
-	private const int W = 640;
-	private const int H = 480;
+	private const int W = 1920;
+	private const int H = 1080;
 
 	private GraphicsDeviceManager Graphics;
 	private SpriteBatch SpriteBatch;
-	private readonly RayTracer RayTracer;
+	//private readonly RayTracer RayTracer;
 	private readonly Rasterizer Rasterizer;
 
 	public Game1()
@@ -27,7 +27,7 @@ internal sealed class Game1 : Game
 		Graphics.IsFullScreen = false;
 		Graphics.ApplyChanges();
 
-		RayTracer = new RayTracer(GraphicsDevice, W, H);
+		//RayTracer = new RayTracer(GraphicsDevice, W, H);
 		Rasterizer = new Rasterizer(GraphicsDevice, W, H);
 
 		Content.RootDirectory = "Content";
