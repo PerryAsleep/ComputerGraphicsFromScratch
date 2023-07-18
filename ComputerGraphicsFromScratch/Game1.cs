@@ -12,6 +12,7 @@ internal sealed class Game1 : Game
 	private GraphicsDeviceManager Graphics;
 	private SpriteBatch SpriteBatch;
 	private readonly RayTracer RayTracer;
+	private readonly Rasterizer Rasterizer;
 
 	public Game1()
 	{
@@ -27,6 +28,7 @@ internal sealed class Game1 : Game
 		Graphics.ApplyChanges();
 
 		RayTracer = new RayTracer(GraphicsDevice, W, H);
+		Rasterizer = new Rasterizer(GraphicsDevice, W, H);
 
 		Content.RootDirectory = "Content";
 		IsMouseVisible = true;
@@ -42,7 +44,8 @@ internal sealed class Game1 : Game
 		if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
 			Exit();
 
-		RayTracer.Update(gameTime);
+		//RayTracer.Update(gameTime);
+		Rasterizer.Update(gameTime);
 
 		base.Update(gameTime);
 	}
@@ -52,7 +55,8 @@ internal sealed class Game1 : Game
 		GraphicsDevice.Clear(Color.CornflowerBlue);
 
 		SpriteBatch.Begin();
-		RayTracer.Draw(SpriteBatch);
+		//RayTracer.Draw(SpriteBatch);
+		Rasterizer.Draw(SpriteBatch);
 		SpriteBatch.End();
 
 		base.Draw(gameTime);
