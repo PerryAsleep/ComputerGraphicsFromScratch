@@ -21,11 +21,13 @@ internal sealed class Rasterizer
 	{
 		public readonly int X;
 		public readonly int Y;
+		public readonly float H;
 
-		public Point(int x, int y)
+		public Point(int x, int y, float h)
 		{
 			X = x;
 			Y = y;
+			H = h;
 		}
 	}
 
@@ -70,6 +72,16 @@ internal sealed class Rasterizer
 
 	#endregion Canvas
 
+	#region Color
+
+	private static Color MultiplyColor(Color color, float factor)
+	{
+		factor = Math.Clamp(factor, 0.0f, 1.0f);
+		return new Color((byte)(color.R * factor), (byte)(color.G * factor), (byte)(color.B * factor));
+	}
+
+	#endregion Color
+
 	#region Rasterization
 
 	/// <summary>
@@ -79,12 +91,12 @@ internal sealed class Rasterizer
 	/// This function dynamically allocates a List every time it is called.
 	/// This seems terrible but for now I am following along with the book.
 	/// </remarks>
-	private static List<int> Interpolate(int i0, float d0, int i1, float d1)
+	private static List<float> Interpolate(int i0, float d0, int i1, float d1)
 	{
-		var values = new List<int>();
+		var values = new List<float>();
 		if (i0 == i1)
 		{
-			values.Add((int)d0);
+			values.Add(d0);
 			return values;
 		}
 
@@ -92,7 +104,7 @@ internal sealed class Rasterizer
 		var d = d0;
 		for (var i = i0; i <= i1; i++)
 		{
-			values.Add((int)d);
+			values.Add(d);
 			d += a;
 		}
 
@@ -114,7 +126,7 @@ internal sealed class Rasterizer
 			var ys = Interpolate(p0.X, p0.Y, p1.X, p1.Y);
 			for (var x = p0.X; x <= p1.X; x++)
 			{
-				PutPixel(x, ys[(x - p0.X) | 0], color);
+				PutPixel(x, (int)ys[(x - p0.X) | 0], color);
 			}
 		}
 		else
@@ -127,7 +139,7 @@ internal sealed class Rasterizer
 			var xs = Interpolate(p0.Y, p0.X, p1.Y, p1.X);
 			for (var y = p0.Y; y <= p1.Y; y++)
 			{
-				PutPixel(xs[(y - p0.Y) | 0], y, color);
+				PutPixel((int)xs[(y - p0.Y) | 0], y, color);
 			}
 		}
 	}
@@ -160,7 +172,7 @@ internal sealed class Rasterizer
 		x01.AddRange(x12);
 
 		// Determine which is left and which is right.
-		List<int> xLeft, xRight;
+		List<float> xLeft, xRight;
 		var m = (x02.Count >> 1) | 0;
 		if (x02[m] < x01[m])
 		{
@@ -176,9 +188,70 @@ internal sealed class Rasterizer
 		// Draw horizontal segments.
 		for (var y = p0.Y; y <= p2.Y; y++)
 		{
-			for (var x = xLeft[y - p0.Y]; x <= xRight[y - p0.Y]; x++)
+			for (var x = (int)xLeft[y - p0.Y]; x <= (int)xRight[y - p0.Y]; x++)
 			{
 				PutPixel(x, y, color);
+			}
+		}
+	}
+
+	private void DrawShadedTriangle(Point p0, Point p1, Point p2, Color color)
+	{
+		// Sort the points from bottom to top.
+		if (p1.Y < p0.Y)
+			(p0, p1) = (p1, p0);
+		if (p2.Y < p0.Y)
+			(p0, p2) = (p2, p0);
+		if (p2.Y < p1.Y)
+			(p1, p2) = (p2, p1);
+
+		// Compute X coordinates and H values of the edges.
+		var x01 = Interpolate(p0.Y, p0.X, p1.Y, p1.X);
+		var h01 = Interpolate(p0.Y, p0.H, p1.Y, p1.H);
+
+		var x12 = Interpolate(p1.Y, p1.X, p2.Y, p2.X);
+		var h12 = Interpolate(p1.Y, p1.H, p2.Y, p2.H);
+
+		var x02 = Interpolate(p0.Y, p0.X, p2.Y, p2.X);
+		var h02 = Interpolate(p0.Y, p0.H, p2.Y, p2.H);
+
+		// Merge the two short sides.
+		if (x01.Count > 0)
+			x01.RemoveAt(x01.Count - 1);
+		x01.AddRange(x12);
+
+		if (h01.Count > 0)
+			h01.RemoveAt(h01.Count - 1);
+		h01.AddRange(h12);
+
+		// Determine which is left and which is right.
+		List<float> xLeft, xRight, hLeft, hRight;
+		var m = (x02.Count >> 1) | 0;
+		if (x02[m] < x01[m])
+		{
+			xLeft = x02;
+			xRight = x01;
+			hLeft = h02;
+			hRight = h01;
+		}
+		else
+		{
+			xLeft = x01;
+			xRight = x02;
+			hLeft = h01;
+			hRight = h02;
+		}
+
+		// Draw horizontal segments.
+		for (var y = p0.Y; y <= p2.Y; y++)
+		{
+			var xl = (int)xLeft[y - p0.Y] | 0;
+			var xr = (int)xRight[y - p0.Y] | 0;
+			var hSegment = Interpolate(xl, hLeft[y - p0.Y], xr, hRight[y - p0.Y]);
+
+			for (var x = xl; x <= xr; x++)
+			{
+				PutPixel(x, y, MultiplyColor(color, hSegment[x - xl]));
 			}
 		}
 	}
@@ -190,12 +263,11 @@ internal sealed class Rasterizer
 		var texture = Textures[TextureIndex];
 		Array.Copy(ClearData, TextureData, CanvasW * CanvasH);
 
-		var p0 = new Point(-200, -250);
-		var p1 = new Point(200, 50);
-		var p2 = new Point(20, 250);
+		var p0 = new Point(-200, -250, 0.3f);
+		var p1 = new Point(200, 50, 0.1f);
+		var p2 = new Point(20, 250, 1.0f);
 
-		DrawFilledTriangle(p0, p1, p2, Color.Green);
-		DrawWireFrameTriangle(p0, p1, p2, Color.Black);
+		DrawShadedTriangle(p0, p1, p2, Color.Green);
 
 		texture.SetData(TextureData);
 	}
