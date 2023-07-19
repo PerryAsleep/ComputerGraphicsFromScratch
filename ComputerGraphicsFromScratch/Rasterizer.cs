@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
@@ -17,13 +16,24 @@ internal sealed class Rasterizer
 	private readonly int CanvasW;
 	private readonly int CanvasH;
 
-	private readonly struct Point
+	private readonly float ViewportW;
+	private readonly float ViewportH;
+	private readonly float ProjectionPlaneZ = 1.0f;
+
+	private readonly struct Point<T>
 	{
-		public readonly int X;
-		public readonly int Y;
+		public readonly T X;
+		public readonly T Y;
 		public readonly float H;
 
-		public Point(int x, int y, float h)
+		public Point(T x, T y)
+		{
+			X = x;
+			Y = y;
+			H = 1.0f;
+		}
+
+		public Point(T x, T y, float h)
 		{
 			X = x;
 			Y = y;
@@ -33,6 +43,9 @@ internal sealed class Rasterizer
 
 	public Rasterizer(GraphicsDevice graphicsDevice, int w, int h)
 	{
+		ViewportW = (float)w / h;
+		ViewportH = 1.0f;
+
 		CanvasW = w;
 		CanvasH = h;
 
@@ -68,6 +81,16 @@ internal sealed class Rasterizer
 		}
 
 		TextureData[y * CanvasW + x] = ToRgba(color);
+	}
+
+	private Point<int> ViewportToCanvas(Point<float> p2d)
+	{
+		return new Point<int>((int)(p2d.X * CanvasW / ViewportW), (int)(p2d.Y * CanvasH / ViewportH));
+	}
+
+	private Point<int> ViewportToCanvas(Point<int> p2d)
+	{
+		return new Point<int>((int)(p2d.X * CanvasW / ViewportW), (int)(p2d.Y * CanvasH / ViewportH));
 	}
 
 	#endregion Canvas
@@ -111,7 +134,12 @@ internal sealed class Rasterizer
 		return values;
 	}
 
-	private void DrawLine(Point p0, Point p1, Color color)
+	private Point<int> ProjectVertex(Vector3 v)
+	{
+		return ViewportToCanvas(new Point<float>(v.X * ProjectionPlaneZ / v.Z, v.Y * ProjectionPlaneZ / v.Z));
+	}
+
+	private void DrawLine(Point<int> p0, Point<int> p1, Color color)
 	{
 		var dx = p1.X - p0.X;
 		var dy = p1.Y - p0.Y;
@@ -144,14 +172,14 @@ internal sealed class Rasterizer
 		}
 	}
 
-	private void DrawWireFrameTriangle(Point p0, Point p1, Point p2, Color color)
+	private void DrawWireFrameTriangle(Point<int> p0, Point<int> p1, Point<int> p2, Color color)
 	{
 		DrawLine(p0, p1, color);
 		DrawLine(p1, p2, color);
 		DrawLine(p0, p2, color);
 	}
 
-	private void DrawFilledTriangle(Point p0, Point p1, Point p2, Color color)
+	private void DrawFilledTriangle(Point<int> p0, Point<int> p1, Point<int> p2, Color color)
 	{
 		// Sort the points from bottom to top.
 		if (p1.Y < p0.Y)
@@ -195,7 +223,7 @@ internal sealed class Rasterizer
 		}
 	}
 
-	private void DrawShadedTriangle(Point p0, Point p1, Point p2, Color color)
+	private void DrawShadedTriangle(Point<int> p0, Point<int> p1, Point<int> p2, Color color)
 	{
 		// Sort the points from bottom to top.
 		if (p1.Y < p0.Y)
@@ -263,11 +291,31 @@ internal sealed class Rasterizer
 		var texture = Textures[TextureIndex];
 		Array.Copy(ClearData, TextureData, CanvasW * CanvasH);
 
-		var p0 = new Point(-200, -250, 0.3f);
-		var p1 = new Point(200, 50, 0.1f);
-		var p2 = new Point(20, 250, 1.0f);
 
-		DrawShadedTriangle(p0, p1, p2, Color.Green);
+		var vA = new Vector3(-2, -0.5f, 5);
+		var vB = new Vector3(-2, 0.5f, 5);
+		var vC = new Vector3(-1, 0.5f, 5);
+		var vD = new Vector3(-1, -0.5f, 5);
+
+		var vAb = new Vector3(-2, -0.5f, 6);
+		var vBb = new Vector3(-2, 0.5f, 6);
+		var vCb = new Vector3(-1, 0.5f, 6);
+		var vDb = new Vector3(-1, -0.5f, 6);
+
+		DrawLine(ProjectVertex(vA), ProjectVertex(vB), Color.Blue);
+		DrawLine(ProjectVertex(vB), ProjectVertex(vC), Color.Blue);
+		DrawLine(ProjectVertex(vC), ProjectVertex(vD), Color.Blue);
+		DrawLine(ProjectVertex(vD), ProjectVertex(vA), Color.Blue);
+
+		DrawLine(ProjectVertex(vAb), ProjectVertex(vBb), Color.Red);
+		DrawLine(ProjectVertex(vBb), ProjectVertex(vCb), Color.Red);
+		DrawLine(ProjectVertex(vCb), ProjectVertex(vDb), Color.Red);
+		DrawLine(ProjectVertex(vDb), ProjectVertex(vAb), Color.Red);
+
+		DrawLine(ProjectVertex(vA), ProjectVertex(vAb), Color.Green);
+		DrawLine(ProjectVertex(vB), ProjectVertex(vBb), Color.Green);
+		DrawLine(ProjectVertex(vC), ProjectVertex(vCb), Color.Green);
+		DrawLine(ProjectVertex(vD), ProjectVertex(vDb), Color.Green);
 
 		texture.SetData(TextureData);
 	}
