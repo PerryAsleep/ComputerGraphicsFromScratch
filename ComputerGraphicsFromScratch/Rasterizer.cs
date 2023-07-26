@@ -41,6 +41,22 @@ internal sealed class Rasterizer
 		}
 	}
 
+	private readonly struct Triangle
+	{
+		public readonly int VertexIndex0;
+		public readonly int VertexIndex1;
+		public readonly int VertexIndex2;
+		public readonly Color Color;
+
+		public Triangle(int vertexIndex0, int vertexIndex1, int vertexIndex2, Color color)
+		{
+			VertexIndex0 = vertexIndex0;
+			VertexIndex1 = vertexIndex1;
+			VertexIndex2 = vertexIndex2;
+			Color = color;
+		}
+	}
+
 	public Rasterizer(GraphicsDevice graphicsDevice, int w, int h)
 	{
 		ViewportW = (float)w / h;
@@ -284,6 +300,24 @@ internal sealed class Rasterizer
 		}
 	}
 
+	private void RenderTriangle(Triangle triangle, List<Point<int>> projectedVertices)
+	{
+		DrawWireFrameTriangle(
+			projectedVertices[triangle.VertexIndex0],
+			projectedVertices[triangle.VertexIndex1],
+			projectedVertices[triangle.VertexIndex2],
+			triangle.Color);
+	}
+
+	private void RenderObject(List<Vector3> vertices, List<Triangle> triangles)
+	{
+		var projectedVertices = new List<Point<int>>(vertices.Count);
+		for (var i = 0; i < vertices.Count; i++)
+			projectedVertices.Add(ProjectVertex(vertices[i]));
+		for (var i = 0; i < triangles.Count; i++)
+			RenderTriangle(triangles[i], projectedVertices);
+	}
+
 	#endregion Rasterization
 
 	public void Update(GameTime _)
@@ -291,31 +325,40 @@ internal sealed class Rasterizer
 		var texture = Textures[TextureIndex];
 		Array.Copy(ClearData, TextureData, CanvasW * CanvasH);
 
+		var vertices = new List<Vector3>
+		{
+			new (1, 1, 1),
+			new (-1, 1, 1),
+			new (-1, -1, 1),
+			new (1, -1, 1),
+			new (1, 1, -1),
+			new (-1, 1, -1),
+			new (-1, -1, -1),
+			new (1, -1, -1),
+		};
 
-		var vA = new Vector3(-2, -0.5f, 5);
-		var vB = new Vector3(-2, 0.5f, 5);
-		var vC = new Vector3(-1, 0.5f, 5);
-		var vD = new Vector3(-1, -0.5f, 5);
+		var triangles = new List<Triangle>
+		{
+			new (0, 1, 2, Color.Red),
+			new (0, 2, 3, Color.Red),
+			new (4, 0, 3, Color.Green),
+			new (4, 3, 7, Color.Green),
+			new (5, 4, 7, Color.Blue),
+			new (5, 7, 6, Color.Blue),
+			new (1, 5, 6, Color.Yellow),
+			new (1, 6, 2, Color.Yellow),
+			new (4, 5, 1, Color.Purple),
+			new (4, 1, 0, Color.Purple),
+			new (2, 6, 7, Color.Cyan),
+			new (2, 7, 3, Color.Cyan)
+		};
 
-		var vAb = new Vector3(-2, -0.5f, 6);
-		var vBb = new Vector3(-2, 0.5f, 6);
-		var vCb = new Vector3(-1, 0.5f, 6);
-		var vDb = new Vector3(-1, -0.5f, 6);
+		for (var i = 0; i < vertices.Count; i++)
+		{
+			vertices[i] = new Vector3(vertices[i].X - 1.5f, vertices[i].Y, vertices[i].Z + 7.0f);
+		}
 
-		DrawLine(ProjectVertex(vA), ProjectVertex(vB), Color.Blue);
-		DrawLine(ProjectVertex(vB), ProjectVertex(vC), Color.Blue);
-		DrawLine(ProjectVertex(vC), ProjectVertex(vD), Color.Blue);
-		DrawLine(ProjectVertex(vD), ProjectVertex(vA), Color.Blue);
-
-		DrawLine(ProjectVertex(vAb), ProjectVertex(vBb), Color.Red);
-		DrawLine(ProjectVertex(vBb), ProjectVertex(vCb), Color.Red);
-		DrawLine(ProjectVertex(vCb), ProjectVertex(vDb), Color.Red);
-		DrawLine(ProjectVertex(vDb), ProjectVertex(vAb), Color.Red);
-
-		DrawLine(ProjectVertex(vA), ProjectVertex(vAb), Color.Green);
-		DrawLine(ProjectVertex(vB), ProjectVertex(vBb), Color.Green);
-		DrawLine(ProjectVertex(vC), ProjectVertex(vCb), Color.Green);
-		DrawLine(ProjectVertex(vD), ProjectVertex(vDb), Color.Green);
+		RenderObject(vertices, triangles);
 
 		texture.SetData(TextureData);
 	}
