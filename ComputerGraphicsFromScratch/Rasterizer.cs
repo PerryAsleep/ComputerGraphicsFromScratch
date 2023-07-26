@@ -20,42 +20,9 @@ internal sealed class Rasterizer
 	private readonly float ViewportH;
 	private readonly float ProjectionPlaneZ = 1.0f;
 
-	private readonly struct Point<T>
-	{
-		public readonly T X;
-		public readonly T Y;
-		public readonly float H;
+	private readonly List<Instance> Instances;
 
-		public Point(T x, T y)
-		{
-			X = x;
-			Y = y;
-			H = 1.0f;
-		}
-
-		public Point(T x, T y, float h)
-		{
-			X = x;
-			Y = y;
-			H = h;
-		}
-	}
-
-	private readonly struct Triangle
-	{
-		public readonly int VertexIndex0;
-		public readonly int VertexIndex1;
-		public readonly int VertexIndex2;
-		public readonly Color Color;
-
-		public Triangle(int vertexIndex0, int vertexIndex1, int vertexIndex2, Color color)
-		{
-			VertexIndex0 = vertexIndex0;
-			VertexIndex1 = vertexIndex1;
-			VertexIndex2 = vertexIndex2;
-			Color = color;
-		}
-	}
+	#region Initialization
 
 	public Rasterizer(GraphicsDevice graphicsDevice, int w, int h)
 	{
@@ -74,7 +41,50 @@ internal sealed class Rasterizer
 
 		TextureData = new uint[CanvasW * CanvasH];
 		ClearData = new uint[CanvasW * CanvasH];
+
+		// Create cube instances.
+		var cube = CreateCube();
+		Instances = new List<Instance>
+		{
+			new(cube, new Vector3(-1.5f, 0.0f, 7.0f)),
+			new(cube, new Vector3(1.25f, 2.0f, 7.5f)),
+		};
 	}
+
+	private static Model CreateCube()
+	{
+		var vertices = new List<Vector3>
+		{
+			new(1, 1, 1),
+			new(-1, 1, 1),
+			new(-1, -1, 1),
+			new(1, -1, 1),
+			new(1, 1, -1),
+			new(-1, 1, -1),
+			new(-1, -1, -1),
+			new(1, -1, -1),
+		};
+
+		var triangles = new List<Triangle>
+		{
+			new(0, 1, 2, Color.Red),
+			new(0, 2, 3, Color.Red),
+			new(4, 0, 3, Color.Green),
+			new(4, 3, 7, Color.Green),
+			new(5, 4, 7, Color.Blue),
+			new(5, 7, 6, Color.Blue),
+			new(1, 5, 6, Color.Yellow),
+			new(1, 6, 2, Color.Yellow),
+			new(4, 5, 1, Color.Purple),
+			new(4, 1, 0, Color.Purple),
+			new(2, 6, 7, Color.Cyan),
+			new(2, 7, 3, Color.Cyan),
+		};
+
+		return new Model(vertices, triangles);
+	}
+
+	#endregion Initialization
 
 	#region Canvas
 
@@ -309,56 +319,36 @@ internal sealed class Rasterizer
 			triangle.Color);
 	}
 
-	private void RenderObject(List<Vector3> vertices, List<Triangle> triangles)
+	#endregion Rasterization
+
+	#region Scene
+
+	private void RenderInstance(Instance instance)
 	{
+		var model = instance.GetModel();
+		var vertices = model.GetVertices();
+		var triangles = model.GetTriangles();
 		var projectedVertices = new List<Point<int>>(vertices.Count);
 		for (var i = 0; i < vertices.Count; i++)
-			projectedVertices.Add(ProjectVertex(vertices[i]));
+			projectedVertices.Add(ProjectVertex(vertices[i] + instance.Position));
 		for (var i = 0; i < triangles.Count; i++)
 			RenderTriangle(triangles[i], projectedVertices);
 	}
 
-	#endregion Rasterization
+	private void RenderScene()
+	{
+		foreach (var instance in Instances)
+			RenderInstance(instance);
+	}
+
+	#endregion Scene
 
 	public void Update(GameTime _)
 	{
 		var texture = Textures[TextureIndex];
 		Array.Copy(ClearData, TextureData, CanvasW * CanvasH);
 
-		var vertices = new List<Vector3>
-		{
-			new (1, 1, 1),
-			new (-1, 1, 1),
-			new (-1, -1, 1),
-			new (1, -1, 1),
-			new (1, 1, -1),
-			new (-1, 1, -1),
-			new (-1, -1, -1),
-			new (1, -1, -1),
-		};
-
-		var triangles = new List<Triangle>
-		{
-			new (0, 1, 2, Color.Red),
-			new (0, 2, 3, Color.Red),
-			new (4, 0, 3, Color.Green),
-			new (4, 3, 7, Color.Green),
-			new (5, 4, 7, Color.Blue),
-			new (5, 7, 6, Color.Blue),
-			new (1, 5, 6, Color.Yellow),
-			new (1, 6, 2, Color.Yellow),
-			new (4, 5, 1, Color.Purple),
-			new (4, 1, 0, Color.Purple),
-			new (2, 6, 7, Color.Cyan),
-			new (2, 7, 3, Color.Cyan)
-		};
-
-		for (var i = 0; i < vertices.Count; i++)
-		{
-			vertices[i] = new Vector3(vertices[i].X - 1.5f, vertices[i].Y, vertices[i].Z + 7.0f);
-		}
-
-		RenderObject(vertices, triangles);
+		RenderScene();
 
 		texture.SetData(TextureData);
 	}
