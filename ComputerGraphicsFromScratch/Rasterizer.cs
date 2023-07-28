@@ -2,6 +2,9 @@
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Vector2 = Microsoft.Xna.Framework.Vector2;
+using Vector3 = Microsoft.Xna.Framework.Vector3;
+using Vector4 = Microsoft.Xna.Framework.Vector4;
 
 namespace ComputerGraphicsFromScratch;
 
@@ -20,6 +23,7 @@ internal sealed class Rasterizer
 	private readonly float ViewportH;
 	private readonly float ProjectionPlaneZ = 1.0f;
 
+	private readonly Camera Camera;
 	private readonly List<Instance> Instances;
 
 	#region Initialization
@@ -46,9 +50,11 @@ internal sealed class Rasterizer
 		var cube = CreateCube();
 		Instances = new List<Instance>
 		{
-			new(cube, new Vector3(-1.5f, 0.0f, 7.0f)),
-			new(cube, new Vector3(1.25f, 2.0f, 7.5f)),
+			new(cube, new Vector3(-1.5f, 0.0f, 7.0f), Matrix.Identity, 0.75f),
+			new(cube, new Vector3(1.25f, 2.5f, 7.5f), Matrix.CreateRotationY(3.40339f), 1.0f),
 		};
+
+		Camera = new Camera(new Vector3(-3, 1, 2), Matrix.CreateRotationY(-0.523599f));
 	}
 
 	private static Model CreateCube()
@@ -161,6 +167,11 @@ internal sealed class Rasterizer
 	}
 
 	private Point<int> ProjectVertex(Vector3 v)
+	{
+		return ViewportToCanvas(new Point<float>(v.X * ProjectionPlaneZ / v.Z, v.Y * ProjectionPlaneZ / v.Z));
+	}
+
+	private Point<int> ProjectVertex(Vector4 v)
 	{
 		return ViewportToCanvas(new Point<float>(v.X * ProjectionPlaneZ / v.Z, v.Y * ProjectionPlaneZ / v.Z));
 	}
@@ -323,22 +334,44 @@ internal sealed class Rasterizer
 
 	#region Scene
 
-	private void RenderInstance(Instance instance)
+	public Vector4 Multiply(Matrix matrix, Vector4 vector)
 	{
-		var model = instance.GetModel();
+		var result = new [] { 0.0f, 0.0f, 0.0f, 0.0f};
+		var vec = new [] { vector.X, vector.Y, vector.Z, vector.W };
+		for (var i = 0; i < 4; i++)
+		{
+			for (var j = 0; j < 4; j++)
+			{
+				result[i] += matrix[j,i] * vec[j];
+			}
+		}
+		return new Vector4(result[0], result[1], result[2], result[3]);
+	}
+
+	private void RenderModel(Model model, Matrix transform)
+	{
 		var vertices = model.GetVertices();
 		var triangles = model.GetTriangles();
 		var projectedVertices = new List<Point<int>>(vertices.Count);
 		for (var i = 0; i < vertices.Count; i++)
-			projectedVertices.Add(ProjectVertex(vertices[i] + instance.Position));
+		{
+			projectedVertices.Add(ProjectVertex(Multiply(transform, new Vector4(vertices[i], 1.0f))));
+		}
+
 		for (var i = 0; i < triangles.Count; i++)
+		{
 			RenderTriangle(triangles[i], projectedVertices);
+		}
 	}
 
 	private void RenderScene()
 	{
+		var cameraMatrix = Matrix.Transpose(Camera.Orientation) * Matrix.CreateTranslation(Camera.Position * -1.0f);
 		foreach (var instance in Instances)
-			RenderInstance(instance);
+		{
+			var transform = cameraMatrix * instance.GetTransform();
+			RenderModel(instance.GetModel(), transform);
+		}
 	}
 
 	#endregion Scene
