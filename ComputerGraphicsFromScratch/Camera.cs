@@ -52,4 +52,9 @@ internal class Camera
 	{
 		Orientation = Matrix.CreateFromYawPitchRoll(DegreesToRadians(Yaw), DegreesToRadians(Pitch), DegreesToRadians(Roll));
 	}
+
+	public Matrix GetViewMatrix()
+	{
+		return Matrix.Transpose(Orientation) * Matrix.CreateTranslation(Position * -1.0f);
+	}
 }

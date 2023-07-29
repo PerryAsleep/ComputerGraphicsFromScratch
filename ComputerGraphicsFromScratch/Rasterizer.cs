@@ -4,7 +4,6 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Vector2 = Microsoft.Xna.Framework.Vector2;
 using Vector3 = Microsoft.Xna.Framework.Vector3;
-using Vector4 = Microsoft.Xna.Framework.Vector4;
 
 namespace ComputerGraphicsFromScratch;
 
@@ -24,7 +23,7 @@ internal sealed class Rasterizer
 	private readonly float ProjectionPlaneZ = 1.0f;
 
 	private readonly Camera Camera;
-	private readonly List<Instance> Instances;
+	private readonly IReadOnlyList<Instance> Instances;
 
 	#region Initialization
 
@@ -32,7 +31,8 @@ internal sealed class Rasterizer
 		GraphicsDevice graphicsDevice,
 		int w,
 		int h,
-		Camera camera)
+		Camera camera,
+		IReadOnlyList<Instance> instances)
 	{
 		ViewportW = (float)w / h;
 		ViewportH = 1.0f;
@@ -50,48 +50,8 @@ internal sealed class Rasterizer
 		TextureData = new uint[CanvasW * CanvasH];
 		ClearData = new uint[CanvasW * CanvasH];
 
-		// Create cube instances.
-		var cube = CreateCube();
-		Instances = new List<Instance>
-		{
-			new(cube, new Vector3(-1.5f, 0.0f, 7.0f), Matrix.Identity, 0.75f),
-			new(cube, new Vector3(1.25f, 2.5f, 7.5f), Matrix.CreateRotationY(3.40339f), 1.0f),
-		};
-
 		Camera = camera;
-	}
-
-	private static Model CreateCube()
-	{
-		var vertices = new List<Vector3>
-		{
-			new(1, 1, 1),
-			new(-1, 1, 1),
-			new(-1, -1, 1),
-			new(1, -1, 1),
-			new(1, 1, -1),
-			new(-1, 1, -1),
-			new(-1, -1, -1),
-			new(1, -1, -1),
-		};
-
-		var triangles = new List<Triangle>
-		{
-			new(0, 1, 2, Color.Red),
-			new(0, 2, 3, Color.Red),
-			new(4, 0, 3, Color.Green),
-			new(4, 3, 7, Color.Green),
-			new(5, 4, 7, Color.Blue),
-			new(5, 7, 6, Color.Blue),
-			new(1, 5, 6, Color.Yellow),
-			new(1, 6, 2, Color.Yellow),
-			new(4, 5, 1, Color.Purple),
-			new(4, 1, 0, Color.Purple),
-			new(2, 6, 7, Color.Cyan),
-			new(2, 7, 3, Color.Cyan),
-		};
-
-		return new Model(vertices, triangles);
+		Instances = instances;
 	}
 
 	#endregion Initialization
@@ -171,11 +131,6 @@ internal sealed class Rasterizer
 	}
 
 	private Point<int> ProjectVertex(Vector3 v)
-	{
-		return ViewportToCanvas(new Point<float>(v.X * ProjectionPlaneZ / v.Z, v.Y * ProjectionPlaneZ / v.Z));
-	}
-
-	private Point<int> ProjectVertex(Vector4 v)
 	{
 		return ViewportToCanvas(new Point<float>(v.X * ProjectionPlaneZ / v.Z, v.Y * ProjectionPlaneZ / v.Z));
 	}
@@ -338,20 +293,6 @@ internal sealed class Rasterizer
 
 	#region Scene
 
-	public Vector4 Multiply(Matrix matrix, Vector4 vector)
-	{
-		var result = new [] { 0.0f, 0.0f, 0.0f, 0.0f};
-		var vec = new [] { vector.X, vector.Y, vector.Z, vector.W };
-		for (var i = 0; i < 4; i++)
-		{
-			for (var j = 0; j < 4; j++)
-			{
-				result[i] += matrix[j,i] * vec[j];
-			}
-		}
-		return new Vector4(result[0], result[1], result[2], result[3]);
-	}
-
 	private void RenderModel(Model model, Matrix transform)
 	{
 		var vertices = model.GetVertices();
@@ -359,7 +300,7 @@ internal sealed class Rasterizer
 		var projectedVertices = new List<Point<int>>(vertices.Count);
 		for (var i = 0; i < vertices.Count; i++)
 		{
-			projectedVertices.Add(ProjectVertex(Multiply(transform, new Vector4(vertices[i], 1.0f))));
+			projectedVertices.Add(ProjectVertex(Vector3.Transform(vertices[i], transform)));
 		}
 
 		for (var i = 0; i < triangles.Count; i++)
@@ -370,10 +311,10 @@ internal sealed class Rasterizer
 
 	private void RenderScene()
 	{
-		var cameraMatrix = Matrix.Transpose(Camera.Orientation) * Matrix.CreateTranslation(Camera.Position * -1.0f);
+		var viewMatrix = Camera.GetViewMatrix();
 		foreach (var instance in Instances)
 		{
-			var transform = cameraMatrix * instance.GetTransform();
+			var transform = instance.GetTransform() * viewMatrix;
 			RenderModel(instance.GetModel(), transform);
 		}
 	}

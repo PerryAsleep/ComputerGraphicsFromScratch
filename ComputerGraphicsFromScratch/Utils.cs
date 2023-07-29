@@ -12,4 +12,3 @@ internal sealed class Utils
 		return radians * 57.295779513082320876798154814105f;
 	}
 }
-

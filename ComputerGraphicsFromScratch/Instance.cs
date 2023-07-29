@@ -1,13 +1,17 @@
 ﻿using Microsoft.Xna.Framework;
+using static ComputerGraphicsFromScratch.Utils;
 
 namespace ComputerGraphicsFromScratch;
 
 internal class Instance
 {
 	private readonly Model Model;
-	public Vector3 Position;
-	public Matrix Orientation;
-	public float Scale;
+
+	private Vector3 _position;
+	private float _scale;
+	private float _yaw;
+	private float _pitch;
+	private float _roll;
 
 	private Matrix Transform;
 
@@ -15,7 +19,6 @@ internal class Instance
 	{
 		Model = model;
 		Position = Vector3.Zero;
-		Orientation = Matrix.Identity;
 		Scale = 1.0f;
 		UpdateTransform();
 	}
@@ -24,23 +27,74 @@ internal class Instance
 	{
 		Model = model;
 		Position = position;
-		Orientation = Matrix.Identity;
 		Scale = 1.0f;
 		UpdateTransform();
 	}
 
-	public Instance(Model model, Vector3 position, Matrix orientation, float scale)
+	public Instance(Model model, Vector3 position, float scale)
 	{
 		Model = model;
 		Position = position;
-		Orientation = orientation;
 		Scale = scale;
 		UpdateTransform();
 	}
 
+	public Vector3 Position
+	{
+		get => _position;
+		set
+		{
+			_position = value;
+			UpdateTransform();
+		}
+	}
+
+	public float Scale
+	{
+		get => _scale;
+		set
+		{
+			_scale = value;
+			UpdateTransform();
+		}
+	}
+
+	public float Yaw
+	{
+		get => _yaw;
+		set
+		{
+			_yaw = value;
+			UpdateTransform();
+		}
+	}
+
+	public float Pitch
+	{
+		get => _pitch;
+		set
+		{
+			_pitch = value;
+			UpdateTransform();
+		}
+	}
+
+	public float Roll
+	{
+		get => _roll;
+		set
+		{
+			_roll = value;
+			UpdateTransform();
+		}
+	}
+
 	private void UpdateTransform()
 	{
-		Transform = (Matrix.CreateScale(Scale) * Orientation) * Matrix.CreateTranslation(Position);
+		var scale = Matrix.CreateScale(Scale);
+		var orientation = Matrix.CreateFromYawPitchRoll(DegreesToRadians(Yaw), DegreesToRadians(Pitch), DegreesToRadians(Roll));
+		var translation = Matrix.CreateTranslation(Position);
+		Transform = scale * orientation * translation;
 	}
 
 	public Model GetModel()

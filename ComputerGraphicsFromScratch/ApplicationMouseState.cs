@@ -104,7 +104,7 @@ internal sealed class ApplicationMouseState
 			return LastClickUpPosition;
 		}
 	}
-	
+
 	// Mouse state.
 	private MouseState CurrentMouseState;
 	private MouseState PreviousMouseState;
