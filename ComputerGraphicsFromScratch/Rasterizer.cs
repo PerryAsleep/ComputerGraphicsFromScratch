@@ -28,7 +28,11 @@ internal sealed class Rasterizer
 
 	#region Initialization
 
-	public Rasterizer(GraphicsDevice graphicsDevice, int w, int h)
+	public Rasterizer(
+		GraphicsDevice graphicsDevice,
+		int w,
+		int h,
+		Camera camera)
 	{
 		ViewportW = (float)w / h;
 		ViewportH = 1.0f;
@@ -54,7 +58,7 @@ internal sealed class Rasterizer
 			new(cube, new Vector3(1.25f, 2.5f, 7.5f), Matrix.CreateRotationY(3.40339f), 1.0f),
 		};
 
-		Camera = new Camera(new Vector3(-3, 1, 2), Matrix.CreateRotationY(-0.523599f));
+		Camera = camera;
 	}
 
 	private static Model CreateCube()
