@@ -32,7 +32,8 @@ internal sealed class Game1 : Game
 		Graphics = new GraphicsDeviceManager(this);
 		Graphics.GraphicsProfile = GraphicsProfile.HiDef;
 
-		Window.AllowUserResizing = false;
+		Window.AllowUserResizing = true;
+		Window.ClientSizeChanged += OnResize;
 		Graphics.SynchronizeWithVerticalRetrace = true;
 
 		Graphics.PreferredBackBufferHeight = H;
@@ -40,7 +41,7 @@ internal sealed class Game1 : Game
 		Graphics.IsFullScreen = false;
 		Graphics.ApplyChanges();
 
-		Camera = new Camera(new Vector3(0, 0, -10));
+		Camera = new Camera(new Vector3(-3, 1, -2), GetViewportWidth(), GetViewportHeight());
 
 		Content.RootDirectory = "Content";
 		IsMouseVisible = true;
@@ -52,7 +53,7 @@ internal sealed class Game1 : Game
 		var cube = CreateCube();
 		Instances = new List<Instance>
 		{
-			new(cube, new Vector3(0.0f, 0.0f, 0.0f), 0.75f),
+			new(cube, new Vector3(-1.5f, 0.0f, 7.0f), 0.75f),
 			new(cube, new Vector3(1.25f, 2.5f, 7.5f), 1.0f),
 		};
 
@@ -90,7 +91,7 @@ internal sealed class Game1 : Game
 			new(2, 7, 3, Color.Cyan),
 		};
 
-		return new Model(vertices, triangles);
+		return new Model(vertices, triangles, new Vector3(0, 0, 0), (float)Math.Sqrt(3));
 	}
 
 	protected override void LoadContent()
@@ -144,6 +145,10 @@ internal sealed class Game1 : Game
 			if (ImGui.DragFloat3("Position", ref pos, 0.1f))
 				Camera.Position = new Vector3(pos.X, pos.Y, pos.Z);
 
+			var fov = Camera.Fov;
+			if (ImGui.DragFloat("FOV", ref fov, 0.1f))
+				Camera.Fov = fov;
+
 			var yaw = Camera.Yaw;
 			if (ImGui.DragFloat("Yaw", ref yaw, 0.1f, 0.0f, 360.0f))
 				Camera.Yaw = yaw;
@@ -161,6 +166,7 @@ internal sealed class Game1 : Game
 			{
 				ImGui.Separator();
 				ImGui.Text($"Cube {index + 1}");
+				ImGui.Text($"Num Triangles Rendered: {instance.DebugGetNumRenderedTriangles()}");
 
 				var instancePos = new System.Numerics.Vector3(instance.Position.X, instance.Position.Y, instance.Position.Z);
 				if (ImGui.DragFloat3($"Position##{index}", ref instancePos, 0.1f))
@@ -181,6 +187,15 @@ internal sealed class Game1 : Game
 				var instanceRoll = instance.Roll;
 				if (ImGui.DragFloat($"Roll##{index}", ref instanceRoll, 0.1f, -90.0f, 90.0f))
 					instance.Roll = instanceRoll;
+
+				if (ImGui.Button($"Reset##{index}"))
+				{
+					instance.Position = Vector3.Zero;
+					instance.Scale = 1.0f;
+					instance.Yaw = 0.0f;
+					instance.Pitch = 0.0f;
+					instance.Roll = 0.0f;
+				}
 
 				index++;
 			}
@@ -209,4 +224,29 @@ internal sealed class Game1 : Game
 	private static extern int GetWindowThreadProcessId(IntPtr handle, out int processId);
 
 	#endregion Application Focus
+
+	#region Window Resizing
+
+	public void OnResize(object sender, EventArgs e)
+	{
+		var form = (System.Windows.Forms.Form)System.Windows.Forms.Control.FromHandle(Window.Handle);
+		if (form == null)
+			return;
+		var w = GetViewportWidth();
+		var h = GetViewportHeight();
+		Camera.UpdateViewport(w, h);
+		Rasterizer.UpdateViewport(w, h);
+	}
+
+	public int GetViewportWidth()
+	{
+		return Graphics.GraphicsDevice.Viewport.Width;
+	}
+
+	public int GetViewportHeight()
+	{
+		return Graphics.GraphicsDevice.Viewport.Height;
+	}
+
+	#endregion Window Resizing
 }

@@ -13,6 +13,8 @@ internal class Instance
 	private float _pitch;
 	private float _roll;
 
+	private int DebugNumRenderedTriangles;
+
 	private Matrix Transform;
 
 	public Instance(Model model)
@@ -105,5 +107,15 @@ internal class Instance
 	public Matrix GetTransform()
 	{
 		return Transform;
+	}
+
+	public void DebugSetNumRenderedTriangles(int numRenderedTriangles)
+	{
+		DebugNumRenderedTriangles = numRenderedTriangles;
+	}
+
+	public int DebugGetNumRenderedTriangles()
+	{
+		return DebugNumRenderedTriangles;
 	}
 }

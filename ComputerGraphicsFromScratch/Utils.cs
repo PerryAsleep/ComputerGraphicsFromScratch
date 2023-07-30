@@ -11,4 +11,9 @@ internal sealed class Utils
 	{
 		return radians * 57.295779513082320876798154814105f;
 	}
+
+	public static void Swap<T>(ref T a, ref T b)
+	{
+		(a, b) = (b, a);
+	}
 }

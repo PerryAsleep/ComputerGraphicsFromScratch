@@ -11,17 +11,14 @@ internal sealed class Rasterizer
 {
 	private const int NumTextures = 2;
 	private int TextureIndex;
-	private readonly Texture2D[] Textures;
-	private readonly uint[] TextureData;
-	private readonly uint[] ClearData;
+	private Texture2D[] Textures;
+	private uint[] TextureData;
+	private uint[] ClearData;
 
-	private readonly int CanvasW;
-	private readonly int CanvasH;
+	private int CanvasW;
+	private int CanvasH;
 
-	private readonly float ViewportW;
-	private readonly float ViewportH;
-	private readonly float ProjectionPlaneZ = 1.0f;
-
+	private readonly GraphicsDevice Graphics;
 	private readonly Camera Camera;
 	private readonly IReadOnlyList<Instance> Instances;
 
@@ -34,24 +31,26 @@ internal sealed class Rasterizer
 		Camera camera,
 		IReadOnlyList<Instance> instances)
 	{
-		ViewportW = (float)w / h;
-		ViewportH = 1.0f;
+		Graphics = graphicsDevice;
+		;
+		UpdateViewport(w, h);
 
+		Camera = camera;
+		Instances = instances;
+	}
+
+	public void UpdateViewport(int w, int h)
+	{
 		CanvasW = w;
 		CanvasH = h;
-
-		// Set up the textures.
 		Textures = new Texture2D[NumTextures];
 		for (var i = 0; i < NumTextures; i++)
 		{
-			Textures[i] = new Texture2D(graphicsDevice, w, h, false, SurfaceFormat.Color);
+			Textures[i] = new Texture2D(Graphics, CanvasW, CanvasH, false, SurfaceFormat.Color);
 		}
 
 		TextureData = new uint[CanvasW * CanvasH];
 		ClearData = new uint[CanvasW * CanvasH];
-
-		Camera = camera;
-		Instances = instances;
 	}
 
 	#endregion Initialization
@@ -81,12 +80,14 @@ internal sealed class Rasterizer
 
 	private Point<int> ViewportToCanvas(Point<float> p2d)
 	{
-		return new Point<int>((int)(p2d.X * CanvasW / ViewportW), (int)(p2d.Y * CanvasH / ViewportH));
+		return new Point<int>((int)(p2d.X * CanvasW / Camera.GetProjectionPlaneW()),
+			(int)(p2d.Y * CanvasH / Camera.GetProjectionPlaneH()));
 	}
 
 	private Point<int> ViewportToCanvas(Point<int> p2d)
 	{
-		return new Point<int>((int)(p2d.X * CanvasW / ViewportW), (int)(p2d.Y * CanvasH / ViewportH));
+		return new Point<int>((int)(p2d.X * CanvasW / Camera.GetProjectionPlaneW()),
+			(int)(p2d.Y * CanvasH / Camera.GetProjectionPlaneH()));
 	}
 
 	#endregion Canvas
@@ -132,7 +133,8 @@ internal sealed class Rasterizer
 
 	private Point<int> ProjectVertex(Vector3 v)
 	{
-		return ViewportToCanvas(new Point<float>(v.X * ProjectionPlaneZ / v.Z, v.Y * ProjectionPlaneZ / v.Z));
+		var ppz = Camera.GetProjectionPlaneDistance();
+		return ViewportToCanvas(new Point<float>(v.X * ppz / v.Z, v.Y * ppz / v.Z));
 	}
 
 	private void DrawLine(Point<int> p0, Point<int> p1, Color color)
@@ -291,16 +293,119 @@ internal sealed class Rasterizer
 
 	#endregion Rasterization
 
+	#region Clipping
+
+	private void ClipTriangle(Triangle triangle, Plane plane, List<Triangle> triangles, List<Vector3> vertices)
+	{
+		var a = vertices[triangle.VertexIndex0];
+		var b = vertices[triangle.VertexIndex1];
+		var c = vertices[triangle.VertexIndex2];
+
+		var ad = Vector3.Dot(plane.Normal, a) + plane.D;
+		var bd = Vector3.Dot(plane.Normal, b) + plane.D;
+		var cd = Vector3.Dot(plane.Normal, c) + plane.D;
+
+		var inCount = 0;
+		if (ad > 0.0f)
+			inCount++;
+		if (bd > 0.0f)
+			inCount++;
+		if (cd > 0.0f)
+			inCount++;
+
+		if (inCount == 0)
+		{
+			return;
+		}
+		else if (inCount == 3)
+		{
+			// The triangle is fully in front of the plane.
+			triangles.Add(triangle);
+		}
+		// TODO: Implement clipping of triangles which overlap clipping planes.
+		// This requires not only generated new triangles, but new vertices.
+		// This is missing from the sample code:
+		// https://github.com/ggambetta/computer-graphics-from-scratch/issues/30
+		//else if (inCount == 1)
+		//{
+		//	if (ad < 0.0f)
+		//	{
+		//		Utils.Swap(ref ad, ref bd);
+		//		Utils.Swap(ref a, ref b);
+		//	}
+		//	if (ad < 0.0f)
+		//	{
+		//		Utils.Swap(ref ad, ref cd);
+		//		Utils.Swap(ref a, ref c);
+		//	}
+
+		//	var rb = new Ray(a, b - a);
+		//	var fb = rb.Intersects(plane);
+		//	var rc = new Ray(a, c - a);
+		//	var fc = rc.Intersects(plane);
+		//	if (fb != null && fc != null)
+		//	{
+		//		var bp = a + (fb.Value * rb.Direction);
+		//		var cp = a + (fc.Value * rc.Direction);
+		//		triangles.Add(new Triangle());
+		//	}
+		//}
+	}
+
+	private Model TransformAndClip(IReadOnlyList<Plane> clippingPlanes, Model model, float scale, Matrix transform)
+	{
+		// Transform the bounding sphere and attempt to early discard.
+		var center = Vector3.Transform(model.GetBoundsCenter(), transform);
+		var radius = model.GetBoundsRadius() * scale;
+		foreach (var clippingPlane in clippingPlanes)
+		{
+			var distance = Vector3.Dot(clippingPlane.Normal, center) + clippingPlane.D;
+			if (distance < -radius)
+			{
+				return null;
+			}
+		}
+
+		// Apply modelview transform.
+		var vertices = new List<Vector3>();
+		foreach (var vertex in model.GetVertices())
+			vertices.Add(Transform(vertex, transform));
+
+		// Clip the entire model against each successive plane.
+		var triangles = new List<Triangle>();
+		triangles.AddRange(model.GetTriangles());
+		foreach (var clippingPlane in clippingPlanes)
+		{
+			var newTriangles = new List<Triangle>();
+			foreach (var triangle in triangles)
+			{
+				ClipTriangle(triangle, clippingPlane, newTriangles, vertices);
+			}
+
+			triangles = newTriangles;
+		}
+
+		return new Model(vertices, triangles, center, model.GetBoundsRadius());
+	}
+
+	#endregion Clipping
+
+	private Vector3 Transform(Vector3 vector, Matrix transform)
+	{
+		var v4 = Vector4.Transform(new Vector4(vector.X, vector.Y, vector.Z, 1.0f), transform);
+		return new Vector3(v4.X, v4.Y, v4.Z);
+	}
+
 	#region Scene
 
-	private void RenderModel(Model model, Matrix transform)
+	private void RenderModel(Model model)
 	{
 		var vertices = model.GetVertices();
 		var triangles = model.GetTriangles();
 		var projectedVertices = new List<Point<int>>(vertices.Count);
 		for (var i = 0; i < vertices.Count; i++)
 		{
-			projectedVertices.Add(ProjectVertex(Vector3.Transform(vertices[i], transform)));
+			projectedVertices.Add(ProjectVertex(vertices[i]));
 		}
 
 		for (var i = 0; i < triangles.Count; i++)
@@ -315,7 +420,16 @@ internal sealed class Rasterizer
 		foreach (var instance in Instances)
 		{
 			var transform = instance.GetTransform() * viewMatrix;
-			RenderModel(instance.GetModel(), transform);
+			var clipped = TransformAndClip(Camera.GetClippingPlanes(), instance.GetModel(), instance.Scale, transform);
+			if (clipped != null)
+			{
+				instance.DebugSetNumRenderedTriangles(clipped.GetTriangles().Count);
+				RenderModel(clipped);
+			}
+			else
+			{
+				instance.DebugSetNumRenderedTriangles(0);
+			}
 		}
 	}
 
