@@ -316,7 +316,7 @@ internal sealed class Rasterizer
 		}
 	}
 
-	private void RenderTriangle(Triangle triangle, IReadOnlyList<Vector3> vertices, List<Point<int>> projectedVertices,
+	private bool RenderTriangle(Triangle triangle, IReadOnlyList<Vector3> vertices, List<Point<int>> projectedVertices,
 		bool drawOutlines)
 	{
 		// Sort by projected point Y.
@@ -341,7 +341,7 @@ internal sealed class Rasterizer
 			-1.0f * vertices[triangle.VertexIndices[0]]; // Should be Subtract(camera.position, vertices[triangle.indexes[0]])
 		if (Vector3.Dot(vertexToCamera, normal) <= 0.0f)
 		{
-			return;
+			return false;
 		}
 
 		// Get attribute values (X, 1/Z) at the vertices.
@@ -394,6 +394,8 @@ internal sealed class Rasterizer
 			DrawLine(p0, p2, outlineColor);
 			DrawLine(p2, p1, outlineColor);
 		}
+
+		return true;
 	}
 
 	#endregion Rasterization
@@ -532,7 +534,7 @@ internal sealed class Rasterizer
 
 	#region Scene
 
-	private void RenderModel(Model model, bool drawOutlines)
+	private int RenderModel(Model model, bool drawOutlines)
 	{
 		var vertices = model.GetVertices();
 		var triangles = model.GetTriangles();
@@ -542,10 +544,14 @@ internal sealed class Rasterizer
 			projectedVertices.Add(ProjectVertex(vertices[i]));
 		}
 
+		var numTrianglesRendered = 0;
 		for (var i = 0; i < triangles.Count; i++)
 		{
-			RenderTriangle(triangles[i], model.GetVertices(), projectedVertices, drawOutlines);
+			if (RenderTriangle(triangles[i], model.GetVertices(), projectedVertices, drawOutlines))
+				numTrianglesRendered++;
 		}
+
+		return numTrianglesRendered;
 	}
 
 	private void RenderScene()
@@ -557,8 +563,8 @@ internal sealed class Rasterizer
 			var clipped = TransformAndClip(Camera.GetClippingPlanes(), instance.GetModel(), instance.Scale, transform);
 			if (clipped != null)
 			{
-				instance.DebugSetNumRenderedTriangles(clipped.GetTriangles().Count);
-				RenderModel(clipped, instance.DebugDrawOutlines);
+				var numTrianglesRendered = RenderModel(clipped, instance.DebugDrawOutlines);
+				instance.DebugSetNumRenderedTriangles(numTrianglesRendered);
 			}
 			else
 			{
