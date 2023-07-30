@@ -188,6 +188,8 @@ internal sealed class Game1 : Game
 				if (ImGui.DragFloat($"Roll##{index}", ref instanceRoll, 0.1f, -90.0f, 90.0f))
 					instance.Roll = instanceRoll;
 
+				ImGui.Checkbox($"Draw Triangle Outlines##{index}", ref instance.DebugDrawOutlines);
+
 				if (ImGui.Button($"Reset##{index}"))
 				{
 					instance.Position = Vector3.Zero;

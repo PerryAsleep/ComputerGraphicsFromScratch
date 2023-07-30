@@ -1,4 +1,7 @@
-﻿namespace ComputerGraphicsFromScratch;
+﻿using System;
+using System.Collections.Generic;
+
+namespace ComputerGraphicsFromScratch;
 
 internal sealed class Utils
 {
@@ -15,5 +18,15 @@ internal sealed class Utils
 	public static void Swap<T>(ref T a, ref T b)
 	{
 		(a, b) = (b, a);
+	}
+
+	public void Shuffle<T>(List<T> values)
+	{
+		var r = new Random();
+		for (var i = values.Count - 1; i > 0; --i)
+		{
+			var rand = (int)(r.NextDouble() * (i + 1));
+			(values[i], values[rand]) = (values[rand], values[i]);
+		}
 	}
 }

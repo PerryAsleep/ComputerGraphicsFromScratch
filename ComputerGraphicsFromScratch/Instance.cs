@@ -14,6 +14,7 @@ internal class Instance
 	private float _roll;
 
 	private int DebugNumRenderedTriangles;
+	public bool DebugDrawOutlines;
 
 	private Matrix Transform;
 

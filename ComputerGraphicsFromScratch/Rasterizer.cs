@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Vector2 = Microsoft.Xna.Framework.Vector2;
@@ -22,6 +23,8 @@ internal sealed class Rasterizer
 	private readonly Camera Camera;
 	private readonly IReadOnlyList<Instance> Instances;
 
+	private float[] DepthBuffer;
+
 	#region Initialization
 
 	public Rasterizer(
@@ -32,7 +35,6 @@ internal sealed class Rasterizer
 		IReadOnlyList<Instance> instances)
 	{
 		Graphics = graphicsDevice;
-		;
 		UpdateViewport(w, h);
 
 		Camera = camera;
@@ -51,6 +53,7 @@ internal sealed class Rasterizer
 
 		TextureData = new uint[CanvasW * CanvasH];
 		ClearData = new uint[CanvasW * CanvasH];
+		DepthBuffer = new float[CanvasW * CanvasH];
 	}
 
 	#endregion Initialization
@@ -104,6 +107,25 @@ internal sealed class Rasterizer
 
 	#region Rasterization
 
+	private List<int> SortedVertexIndexes(IReadOnlyList<int> vertexIndexes, IReadOnlyList<Point<int>> projectedVertices)
+	{
+		var indexes = new List<int> { 0, 1, 2 };
+		if (projectedVertices[vertexIndexes[indexes[1]]].Y < projectedVertices[vertexIndexes[indexes[0]]].Y)
+			(indexes[0], indexes[1]) = (indexes[1], indexes[0]);
+		if (projectedVertices[vertexIndexes[indexes[2]]].Y < projectedVertices[vertexIndexes[indexes[0]]].Y)
+			(indexes[0], indexes[2]) = (indexes[2], indexes[0]);
+		if (projectedVertices[vertexIndexes[indexes[2]]].Y < projectedVertices[vertexIndexes[indexes[1]]].Y)
+			(indexes[1], indexes[2]) = (indexes[2], indexes[1]);
+		return indexes;
+	}
+
+	private Vector3 ComputeTriangleNormal(Vector3 v0, Vector3 v1, Vector3 v2)
+	{
+		var v0v1 = v1 + -1 * v0;
+		var v0v2 = v2 + -1 * v0;
+		return Vector3.Cross(v0v1, v0v2);
+	}
+
 	/// <summary>
 	/// Generic interpolation function.
 	/// </summary>
@@ -129,6 +151,18 @@ internal sealed class Rasterizer
 		}
 
 		return values;
+	}
+
+	private static (List<float>, List<float>) EdgeInterpolate(int y0, float v0, int y1, float v1, int y2, float v2)
+	{
+		var v01 = Interpolate(y0, v0, y1, v1);
+		var v12 = Interpolate(y1, v1, y2, v2);
+		var v02 = Interpolate(y0, v0, y2, v2);
+		v01.RemoveAt(v01.Count - 1);
+		var v012 = new List<float>();
+		v012.AddRange(v01);
+		v012.AddRange(v12);
+		return (v02, v012);
 	}
 
 	private Point<int> ProjectVertex(Vector3 v)
@@ -282,13 +316,84 @@ internal sealed class Rasterizer
 		}
 	}
 
-	private void RenderTriangle(Triangle triangle, List<Point<int>> projectedVertices)
+	private void RenderTriangle(Triangle triangle, IReadOnlyList<Vector3> vertices, List<Point<int>> projectedVertices,
+		bool drawOutlines)
 	{
-		DrawWireFrameTriangle(
-			projectedVertices[triangle.VertexIndex0],
-			projectedVertices[triangle.VertexIndex1],
-			projectedVertices[triangle.VertexIndex2],
-			triangle.Color);
+		// Sort by projected point Y.
+		var indexes = SortedVertexIndexes(triangle.VertexIndices, projectedVertices);
+
+		var i0 = indexes[0];
+		var i1 = indexes[1];
+		var i2 = indexes[2];
+
+		var v0 = vertices[triangle.VertexIndices[i0]];
+		var v1 = vertices[triangle.VertexIndices[i1]];
+		var v2 = vertices[triangle.VertexIndices[i2]];
+
+		// Compute triangle normal. Use the unsorted vertices, otherwise the winding of the points may change.
+		var normal = ComputeTriangleNormal(
+			vertices[triangle.VertexIndices[0]],
+			vertices[triangle.VertexIndices[1]],
+			vertices[triangle.VertexIndices[2]]);
+
+		// Backface culling.
+		var vertexToCamera =
+			-1.0f * vertices[triangle.VertexIndices[0]]; // Should be Subtract(camera.position, vertices[triangle.indexes[0]])
+		if (Vector3.Dot(vertexToCamera, normal) <= 0.0f)
+		{
+			return;
+		}
+
+		// Get attribute values (X, 1/Z) at the vertices.
+		var p0 = projectedVertices[triangle.VertexIndices[i0]];
+		var p1 = projectedVertices[triangle.VertexIndices[i1]];
+		var p2 = projectedVertices[triangle.VertexIndices[i2]];
+
+		// Compute attribute values at the edges.
+		var (x02, x012) = EdgeInterpolate(p0.Y, p0.X, p1.Y, p1.X, p2.Y, p2.X);
+		var (iz02, iz012) = EdgeInterpolate(p0.Y, 1.0f / v0.Z, p1.Y, 1.0f / v1.Z, p2.Y, 1.0f / v2.Z);
+
+		// Determine which is left and which is right.
+		var m = (x02.Count >> 1) | 0;
+		List<float> xLeft, xRight, izLeft, izRight;
+		if (x02[m] < x012[m])
+		{
+			(xLeft, xRight) = (x02, x012);
+			(izLeft, izRight) = (iz02, iz012);
+		}
+		else
+		{
+			(xLeft, xRight) = (x012, x02);
+			(izLeft, izRight) = (iz012, iz02);
+		}
+
+		// Draw horizontal segments.
+		for (var y = p0.Y; y <= p2.Y; y++)
+		{
+			var xl = (int)xLeft[y - p0.Y];
+			var xr = (int)xRight[y - p0.Y];
+
+			// Interpolate attributes for this scanline.
+			var zl = izLeft[y - p0.Y];
+			var zr = izRight[y - p0.Y];
+			var zScan = Interpolate(xl, zl, xr, zr);
+
+			for (var x = xl; x <= xr; x++)
+			{
+				if (UpdateDepthBufferIfCloser(x, y, zScan[x - xl]))
+				{
+					PutPixel(x, y, triangle.Color);
+				}
+			}
+		}
+
+		if (drawOutlines)
+		{
+			var outlineColor = MultiplyColor(triangle.Color, 0.75f);
+			DrawLine(p0, p1, outlineColor);
+			DrawLine(p0, p2, outlineColor);
+			DrawLine(p2, p1, outlineColor);
+		}
 	}
 
 	#endregion Rasterization
@@ -390,6 +495,35 @@ internal sealed class Rasterizer
 
 	#endregion Clipping
 
+	#region Depth Buffer
+
+	private void ClearDepthBuffer()
+	{
+		Array.Clear(DepthBuffer);
+	}
+
+	private bool UpdateDepthBufferIfCloser(int canvasX, int canvasY, float inverseZ)
+	{
+		var x = canvasX + (CanvasW >> 1);
+		var y = (CanvasH >> 1) - canvasY - 1;
+
+		if (x < 0 || x >= CanvasW || y < 0 || y >= CanvasH)
+		{
+			return false;
+		}
+
+		var i = x + CanvasW * y;
+		if (DepthBuffer[i] < inverseZ)
+		{
+			DepthBuffer[i] = inverseZ;
+			return true;
+		}
+
+		return false;
+	}
+
+	#endregion Depth Buffer
+
 	private Vector3 Transform(Vector3 vector, Matrix transform)
 	{
 		var v4 = Vector4.Transform(new Vector4(vector.X, vector.Y, vector.Z, 1.0f), transform);
@@ -398,7 +532,7 @@ internal sealed class Rasterizer
 
 	#region Scene
 
-	private void RenderModel(Model model)
+	private void RenderModel(Model model, bool drawOutlines)
 	{
 		var vertices = model.GetVertices();
 		var triangles = model.GetTriangles();
@@ -410,7 +544,7 @@ internal sealed class Rasterizer
 
 		for (var i = 0; i < triangles.Count; i++)
 		{
-			RenderTriangle(triangles[i], projectedVertices);
+			RenderTriangle(triangles[i], model.GetVertices(), projectedVertices, drawOutlines);
 		}
 	}
 
@@ -424,7 +558,7 @@ internal sealed class Rasterizer
 			if (clipped != null)
 			{
 				instance.DebugSetNumRenderedTriangles(clipped.GetTriangles().Count);
-				RenderModel(clipped);
+				RenderModel(clipped, instance.DebugDrawOutlines);
 			}
 			else
 			{
@@ -440,6 +574,7 @@ internal sealed class Rasterizer
 		var texture = Textures[TextureIndex];
 		Array.Copy(ClearData, TextureData, CanvasW * CanvasH);
 
+		ClearDepthBuffer();
 		RenderScene();
 
 		texture.SetData(TextureData);
