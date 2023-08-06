@@ -26,6 +26,7 @@ internal sealed class Game1 : Game
 
 	private readonly Camera Camera;
 	private readonly List<Instance> Instances;
+	private readonly List<Light> Lights;
 
 	public Game1()
 	{
@@ -49,49 +50,26 @@ internal sealed class Game1 : Game
 		ImGuiRenderer = new ImGuiRenderer(this);
 		ImGuiRenderer.RebuildFontAtlas();
 
-		// Create cube instances.
-		var cube = CreateCube();
+		// Create model instances.
+		var cube = Utils.CreateCube();
+		var sphere = Utils.CreateSphere(15, Color.Green);
 		Instances = new List<Instance>
 		{
 			new(cube, new Vector3(-1.5f, 0.0f, 7.0f), 0.75f),
 			new(cube, new Vector3(1.25f, 2.5f, 7.5f), 1.0f),
+			new(sphere, new Vector3(1.75f, -0.5f, 7.0f), 1.5f),
+		};
+
+		// Create lights.
+		Lights = new List<Light>
+		{
+			new(Light.LightType.Ambient, 0.2f, Vector3.Zero),
+			new(Light.LightType.Directional, 0.2f, new Vector3(-1, 0, 1)),
+			new(Light.LightType.Point, 0.6f, new Vector3(-3, 2, -10)),
 		};
 
 		//RayTracer = new RayTracer(GraphicsDevice, W, H);
-		Rasterizer = new Rasterizer(GraphicsDevice, W, H, Camera, Instances);
-	}
-
-	private static Model CreateCube()
-	{
-		var vertices = new List<Vector3>
-		{
-			new(1, 1, 1),
-			new(-1, 1, 1),
-			new(-1, -1, 1),
-			new(1, -1, 1),
-			new(1, 1, -1),
-			new(-1, 1, -1),
-			new(-1, -1, -1),
-			new(1, -1, -1),
-		};
-
-		var triangles = new List<Triangle>
-		{
-			new(0, 1, 2, Color.Red),
-			new(0, 2, 3, Color.Red),
-			new(4, 0, 3, Color.Green),
-			new(4, 3, 7, Color.Green),
-			new(5, 4, 7, Color.Blue),
-			new(5, 7, 6, Color.Blue),
-			new(1, 5, 6, Color.Yellow),
-			new(1, 6, 2, Color.Yellow),
-			new(4, 5, 1, Color.Purple),
-			new(4, 1, 0, Color.Purple),
-			new(2, 6, 7, Color.Cyan),
-			new(2, 7, 3, Color.Cyan),
-		};
-
-		return new Model(vertices, triangles, new Vector3(0, 0, 0), (float)Math.Sqrt(3));
+		Rasterizer = new Rasterizer(GraphicsDevice, W, H, Camera, Lights, Instances);
 	}
 
 	protected override void LoadContent()
@@ -139,6 +117,7 @@ internal sealed class Game1 : Game
 	{
 		if (ImGui.Begin("Controls"))
 		{
+			// Camera
 			ImGui.Text("Camera");
 
 			var pos = new System.Numerics.Vector3(Camera.Position.X, Camera.Position.Y, Camera.Position.Z);
@@ -161,11 +140,26 @@ internal sealed class Game1 : Game
 			if (ImGui.DragFloat("Roll", ref roll, 0.1f, -90.0f, 90.0f))
 				Camera.Roll = roll;
 
+			// Lighting
+			ImGui.Separator();
+			ImGui.Text("Lighting");
+			ImGui.Checkbox("Diffuse", ref Rasterizer.UseDiffuseLighting);
+			ImGui.Checkbox("Specular", ref Rasterizer.UseSpecularLighting);
+			var specularValue = Rasterizer.SpecularValue;
+			if (ImGui.DragInt("Specular Value", ref specularValue, 1.0f, 0, 100))
+				Rasterizer.SpecularValue = specularValue;
+			ImGui.Checkbox("Vertex Normals", ref Rasterizer.UseVertexNormals);
+
+			// Shading
+			ImGui.Separator();
+			ImGui.Text("Shading");
+			Utils.ComboFromEnum("Shading Model", ref Rasterizer.Shading);
+
 			var index = 0;
 			foreach (var instance in Instances)
 			{
 				ImGui.Separator();
-				ImGui.Text($"Cube {index + 1}");
+				ImGui.Text($"Model {index + 1}: {instance.GetModel().GetName()}");
 				ImGui.Text($"Num Triangles Rendered: {instance.DebugGetNumRenderedTriangles()}");
 
 				var instancePos = new System.Numerics.Vector3(instance.Position.X, instance.Position.Y, instance.Position.Z);

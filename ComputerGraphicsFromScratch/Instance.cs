@@ -16,6 +16,7 @@ internal class Instance
 	private int DebugNumRenderedTriangles;
 	public bool DebugDrawOutlines;
 
+	private Matrix Orientation;
 	private Matrix Transform;
 
 	public Instance(Model model)
@@ -95,9 +96,9 @@ internal class Instance
 	private void UpdateTransform()
 	{
 		var scale = Matrix.CreateScale(Scale);
-		var orientation = Matrix.CreateFromYawPitchRoll(DegreesToRadians(Yaw), DegreesToRadians(Pitch), DegreesToRadians(Roll));
+		Orientation = Matrix.CreateFromYawPitchRoll(DegreesToRadians(Yaw), DegreesToRadians(Pitch), DegreesToRadians(Roll));
 		var translation = Matrix.CreateTranslation(Position);
-		Transform = scale * orientation * translation;
+		Transform = scale * Orientation * translation;
 	}
 
 	public Model GetModel()
@@ -108,6 +109,11 @@ internal class Instance
 	public Matrix GetTransform()
 	{
 		return Transform;
+	}
+
+	public Matrix GetOrientation()
+	{
+		return Orientation;
 	}
 
 	public void DebugSetNumRenderedTriangles(int numRenderedTriangles)

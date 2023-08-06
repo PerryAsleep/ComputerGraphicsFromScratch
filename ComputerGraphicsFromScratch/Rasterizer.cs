@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using SharpDX.Direct3D9;
 using Vector2 = Microsoft.Xna.Framework.Vector2;
 using Vector3 = Microsoft.Xna.Framework.Vector3;
 
@@ -22,8 +23,23 @@ internal sealed class Rasterizer
 	private readonly GraphicsDevice Graphics;
 	private readonly Camera Camera;
 	private readonly IReadOnlyList<Instance> Instances;
+	private readonly IReadOnlyList<Light> Lights;
 
 	private float[] DepthBuffer;
+
+	public enum ShadingModel
+	{
+		Flat,
+		Gouraud,
+		Phong,
+	};
+
+	public ShadingModel Shading = ShadingModel.Flat;
+
+	public bool UseDiffuseLighting = true;
+	public bool UseSpecularLighting = true;
+	public bool UseVertexNormals = true;
+	public int SpecularValue = 50;
 
 	#region Initialization
 
@@ -32,6 +48,7 @@ internal sealed class Rasterizer
 		int w,
 		int h,
 		Camera camera,
+		IReadOnlyList<Light> lights,
 		IReadOnlyList<Instance> instances)
 	{
 		Graphics = graphicsDevice;
@@ -39,6 +56,7 @@ internal sealed class Rasterizer
 
 		Camera = camera;
 		Instances = instances;
+		Lights = lights;
 	}
 
 	public void UpdateViewport(int w, int h)
@@ -87,23 +105,67 @@ internal sealed class Rasterizer
 			(int)(p2d.Y * CanvasH / Camera.GetProjectionPlaneH()));
 	}
 
-	private Point<int> ViewportToCanvas(Point<int> p2d)
+	private Point<float> CanvasToViewport(Point<float> p2d)
 	{
-		return new Point<int>((int)(p2d.X * CanvasW / Camera.GetProjectionPlaneW()),
-			(int)(p2d.Y * CanvasH / Camera.GetProjectionPlaneH()));
+		return new Point<float>(p2d.X * Camera.GetProjectionPlaneW() / CanvasW,
+			p2d.Y * Camera.GetProjectionPlaneH() / CanvasH);
 	}
 
 	#endregion Canvas
 
-	#region Color
+	#region Lighting
 
-	private static Color MultiplyColor(Color color, float factor)
+	private float ComputeIllumination(Vector3 vertex, Vector3 normal)
 	{
-		factor = Math.Clamp(factor, 0.0f, 1.0f);
-		return new Color((byte)(color.R * factor), (byte)(color.G * factor), (byte)(color.B * factor));
+		var illumination = 0.0f;
+
+		foreach (var light in Lights)
+		{
+			if (light.Type == Light.LightType.Ambient)
+			{
+				illumination += light.Intensity;
+				continue;
+			}
+
+			var lightVector = Vector3.Zero;
+			if (light.Type == Light.LightType.Directional)
+			{
+				var cameraMatrix = Matrix.Transpose(Camera.Orientation);
+				lightVector = Transform(light.Position, cameraMatrix);
+			}
+			else if (light.Type == Light.LightType.Point)
+			{
+				var cameraMatrix = Camera.GetViewMatrix();
+				lightVector = Transform(light.Position, cameraMatrix);
+			}
+
+			// Diffuse component
+			if (UseDiffuseLighting)
+			{
+				var cosAlpha = Vector3.Dot(lightVector, normal) / (lightVector.Length() * normal.Length());
+				if (cosAlpha > 0.0f)
+				{
+					illumination += cosAlpha * light.Intensity;
+				}
+			}
+
+			// Specular component
+			if (UseSpecularLighting)
+			{
+				var reflected = normal * (2.0f * Vector3.Dot(normal, lightVector)) + lightVector * -1.0f;
+				var view = Camera.Position + -1.0f * vertex;
+				var cosBeta = Vector3.Dot(reflected, view) / (reflected.Length() * view.Length());
+				if (cosBeta > 0.0f)
+				{
+					illumination += (float)Math.Pow(cosBeta, SpecularValue) * light.Intensity;
+				}
+			}
+		}
+
+		return illumination;
 	}
 
-	#endregion Color
+	#endregion Lighting
 
 	#region Rasterization
 
@@ -169,6 +231,16 @@ internal sealed class Rasterizer
 	{
 		var ppz = Camera.GetProjectionPlaneDistance();
 		return ViewportToCanvas(new Point<float>(v.X * ppz / v.Z, v.Y * ppz / v.Z));
+	}
+
+	private Vector3 UnProjectVertex(int canvasX, int canvasY, float inverseZ)
+	{
+		var ppz = Camera.GetProjectionPlaneDistance();
+		var oz = 1.0f / inverseZ;
+		var ux = canvasX * oz / ppz;
+		var uy = canvasY * oz / ppz;
+		var p2d = CanvasToViewport(new Point<float>(ux, uy));
+		return new Vector3(p2d.X, p2d.Y, oz);
 	}
 
 	private void DrawLine(Point<int> p0, Point<int> p1, Color color)
@@ -311,12 +383,16 @@ internal sealed class Rasterizer
 
 			for (var x = xl; x <= xr; x++)
 			{
-				PutPixel(x, y, MultiplyColor(color, hSegment[x - xl]));
+				PutPixel(x, y, Utils.MultiplyColor(color, hSegment[x - xl]));
 			}
 		}
 	}
 
-	private bool RenderTriangle(Triangle triangle, IReadOnlyList<Vector3> vertices, List<Point<int>> projectedVertices,
+	private bool RenderTriangle(
+		Triangle triangle,
+		IReadOnlyList<Vector3> vertices,
+		List<Point<int>> projectedVertices,
+		Matrix orientation,
 		bool drawOutlines)
 	{
 		// Sort by projected point Y.
@@ -353,19 +429,82 @@ internal sealed class Rasterizer
 		var (x02, x012) = EdgeInterpolate(p0.Y, p0.X, p1.Y, p1.X, p2.Y, p2.X);
 		var (iz02, iz012) = EdgeInterpolate(p0.Y, 1.0f / v0.Z, p1.Y, 1.0f / v1.Z, p2.Y, 1.0f / v2.Z);
 
+		Vector3 normal0, normal1, normal2;
+		if (UseVertexNormals)
+		{
+			var transform = Matrix.Transpose(Camera.Orientation) * orientation;
+			normal0 = Transform(triangle.Normals[i0], transform);
+			normal1 = Transform(triangle.Normals[i1], transform);
+			normal2 = Transform(triangle.Normals[i2], transform);
+		}
+		else
+		{
+			normal0 = normal;
+			normal1 = normal;
+			normal2 = normal;
+		}
+
+		List<float> i02 = null, i012 = null;
+		List<float> nx02 = null, nx012 = null, ny02 = null, ny012 = null, nz02 = null, nz012 = null;
+
+		var intensity = 0.0f;
+		switch (Shading)
+		{
+			case ShadingModel.Flat:
+			{
+				// Flat shading: compute lighting for the entire triangle.
+				var center = new Vector3((v0.X + v1.X + v2.X) / 3.0f, (v0.Y + v1.Y + v2.Y) / 3.0f, (v0.Z + v1.Z + v2.Z) / 3.0f);
+				intensity = ComputeIllumination(center, normal0);
+				break;
+			}
+			case ShadingModel.Gouraud:
+			{
+				// Gouraud shading: compute lighting at the vertices, and interpolate.
+				var li0 = ComputeIllumination(v0, normal0);
+				var li1 = ComputeIllumination(v1, normal1);
+				var li2 = ComputeIllumination(v2, normal2);
+				(i02, i012) = EdgeInterpolate(p0.Y, li0, p1.Y, li1, p2.Y, li2);
+				break;
+			}
+			case ShadingModel.Phong:
+			{
+				// Phong shading: interpolate normal vectors.
+				(nx02, nx012) = EdgeInterpolate(p0.Y, normal0.X, p1.Y, normal1.X, p2.Y, normal2.X);
+				(ny02, ny012) = EdgeInterpolate(p0.Y, normal0.Y, p1.Y, normal1.Y, p2.Y, normal2.Y);
+				(nz02, nz012) = EdgeInterpolate(p0.Y, normal0.Z, p1.Y, normal1.Z, p2.Y, normal2.Z);
+				break;
+			}
+		}
+
 		// Determine which is left and which is right.
 		var m = (x02.Count >> 1) | 0;
 		List<float> xLeft, xRight, izLeft, izRight;
+		List<float> iLeft, iRight, nxLeft, nxRight, nyLeft, nyRight, nzLeft, nzRight;
 		if (x02[m] < x012[m])
 		{
 			(xLeft, xRight) = (x02, x012);
 			(izLeft, izRight) = (iz02, iz012);
+			(iLeft, iRight) = (i02, i012);
+
+			(nxLeft, nxRight) = (nx02, nx012);
+			(nyLeft, nyRight) = (ny02, ny012);
+			(nzLeft, nzRight) = (nz02, nz012);
 		}
 		else
 		{
 			(xLeft, xRight) = (x012, x02);
 			(izLeft, izRight) = (iz012, iz02);
+			(iLeft, iRight) = (i012, i02);
+
+			(nxLeft, nxRight) = (nx012, nx02);
+			(nyLeft, nyRight) = (ny012, ny02);
+			(nzLeft, nzRight) = (nz012, nz02);
 		}
+
+		float il, ir;
+		float nxl, nxr, nyl, nyr, nzl, nzr;
+		List<float> iScan = null;
+		List<float> nxScan = null, nyScan = null, nzScan = null;
 
 		// Draw horizontal segments.
 		for (var y = p0.Y; y <= p2.Y; y++)
@@ -378,18 +517,55 @@ internal sealed class Rasterizer
 			var zr = izRight[y - p0.Y];
 			var zScan = Interpolate(xl, zl, xr, zr);
 
+			if (Shading == ShadingModel.Gouraud)
+			{
+				(il, ir) = (iLeft[y - p0.Y], iRight[y - p0.Y]);
+				iScan = Interpolate(xl, il, xr, ir);
+			}
+			else if (Shading == ShadingModel.Phong)
+			{
+				(nxl, nxr) = (nxLeft[y - p0.Y], nxRight[y - p0.Y]);
+				(nyl, nyr) = (nyLeft[y - p0.Y], nyRight[y - p0.Y]);
+				(nzl, nzr) = (nzLeft[y - p0.Y], nzRight[y - p0.Y]);
+				nxScan = Interpolate(xl, nxl, xr, nxr);
+				nyScan = Interpolate(xl, nyl, xr, nyr);
+				nzScan = Interpolate(xl, nzl, xr, nzr);
+			}
+
 			for (var x = xl; x <= xr; x++)
 			{
-				if (UpdateDepthBufferIfCloser(x, y, zScan[x - xl]))
+				var invZ = zScan[x - xl];
+				if (UpdateDepthBufferIfCloser(x, y, invZ))
 				{
-					PutPixel(x, y, triangle.Color);
+					switch (Shading)
+					{
+						case ShadingModel.Flat:
+						{
+							// Just use the per-triangle intensity.
+							break;
+						}
+						case ShadingModel.Gouraud:
+						{
+							intensity = iScan[x - xl];
+							break;
+						}
+						case ShadingModel.Phong:
+						{
+							var vertex = UnProjectVertex(x, y, invZ);
+							var pNormal = new Vector3(nxScan[x - xl], nyScan[x - xl], nzScan[x - xl]);
+							intensity = ComputeIllumination(vertex, pNormal);
+							break;
+						}
+					}
+
+					PutPixel(x, y, Utils.MultiplyColor(triangle.Color, intensity));
 				}
 			}
 		}
 
 		if (drawOutlines)
 		{
-			var outlineColor = MultiplyColor(triangle.Color, 0.75f);
+			var outlineColor = Utils.MultiplyColor(triangle.Color, 0.75f);
 			DrawLine(p0, p1, outlineColor);
 			DrawLine(p0, p2, outlineColor);
 			DrawLine(p2, p1, outlineColor);
@@ -492,7 +668,7 @@ internal sealed class Rasterizer
 			triangles = newTriangles;
 		}
 
-		return new Model(vertices, triangles, center, model.GetBoundsRadius());
+		return new Model(vertices, triangles, center, model.GetBoundsRadius(), model.GetName());
 	}
 
 	#endregion Clipping
@@ -534,7 +710,7 @@ internal sealed class Rasterizer
 
 	#region Scene
 
-	private int RenderModel(Model model, bool drawOutlines)
+	private int RenderModel(Model model, Matrix orientation, bool drawOutlines)
 	{
 		var vertices = model.GetVertices();
 		var triangles = model.GetTriangles();
@@ -547,7 +723,7 @@ internal sealed class Rasterizer
 		var numTrianglesRendered = 0;
 		for (var i = 0; i < triangles.Count; i++)
 		{
-			if (RenderTriangle(triangles[i], model.GetVertices(), projectedVertices, drawOutlines))
+			if (RenderTriangle(triangles[i], model.GetVertices(), projectedVertices, orientation, drawOutlines))
 				numTrianglesRendered++;
 		}
 
@@ -563,7 +739,7 @@ internal sealed class Rasterizer
 			var clipped = TransformAndClip(Camera.GetClippingPlanes(), instance.GetModel(), instance.Scale, transform);
 			if (clipped != null)
 			{
-				var numTrianglesRendered = RenderModel(clipped, instance.DebugDrawOutlines);
+				var numTrianglesRendered = RenderModel(clipped, instance.GetOrientation(), instance.DebugDrawOutlines);
 				instance.DebugSetNumRenderedTriangles(numTrianglesRendered);
 			}
 			else
